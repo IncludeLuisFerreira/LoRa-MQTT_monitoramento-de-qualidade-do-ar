@@ -9,7 +9,7 @@ TOPIC_LUM = "sensor/luminosidade"
 TOPIC_LED = "sensor/led"
 
 TAMANHO_PACOTE = 52
-LIMIAR = 2000  # Ajustado para escala do ESP32 (0 a 4095)
+LIMIAR = 5  # Ajustado para escala do ESP32 (0 a 4095)
 TIMEOUT_RESPOSTA = 10.0  # Tempo máximo de espera em segundos
 
 # Constantes para os comandos dos LEDs
@@ -73,7 +73,7 @@ def loop_requisicao(client):
             pacote_requisicao[10] = 0x00  # ID do gateway
             pacote_requisicao[34] = comando_led_atual
             
-            print(f"\n[TX] Enviando requisição. Comando LED atual (byte 34): {comando_led_atual}")
+            print(f"\n[DL] Enviando requisição. Comando LED atual (byte 34): {comando_led_atual}")
             client.publish(TOPIC_LED, pacote_requisicao)
             
             print(f" Aguardando resposta do sensor (Timeout: {TIMEOUT_RESPOSTA}s)...")
