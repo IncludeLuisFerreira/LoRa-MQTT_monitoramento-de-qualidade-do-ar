@@ -1,0 +1,4 @@
+# Arquivo de dependências para o uso do projeto
+
+# Necessário para a comunicação mqtt com o broker
+paho-mqtt
