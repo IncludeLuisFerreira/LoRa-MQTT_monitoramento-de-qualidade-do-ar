@@ -2,3 +2,6 @@
 
 # Necessário para a comunicação mqtt com o broker
 paho-mqtt
+
+# Necesário para plotar gráficos
+matplotlib
