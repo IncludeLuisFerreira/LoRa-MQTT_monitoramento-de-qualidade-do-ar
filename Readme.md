@@ -72,7 +72,7 @@ lora_mqtt/
 
 ````
 
-> ⚠️ O diretório `venv/` não deve ser versionado (adicione ao `.gitignore`)
+> ⚠️ O diretório `venv/` e `dados/` não deve ser versionado (adicione ao `.gitignore`)
 
 ---
 
@@ -163,11 +163,40 @@ TIMEOUT_RESPOSTA = 10.0
 ```
 ---
 
-## ▶️ Execução
+## ▶️ Execução e Testes
 
 ```bash
-python3 computador/mqtt_client.py
+python computador/mqtt_client.py
 ```
+Você pode testar a aplicação de ponta a ponta localmente utilizando o sensor simulado sem a necessidade do hardware físico:
+
+### Passo 1: Inicializar o Sensor Fake
+Em um terminal dedicado, execute o simulador:
+
+```bash
+python test/fake_sensor.py
+```
+
+### Passo 2: Inicializar o Cliente Principal
+
+Em outro terminal, execute o script do ecossistema de controle e armazenamento:
+
+```bash
+python computador/mqtt_client.py
+```
+## 💾 Armazenamento Local (Persistência JSON)
+
+Ao receber respostas válidas, o sistema gera de forma automática uma pasta chamada dados/ no mesmo diretório do arquivo executado e armazena os dados sob o seguinte formato estruturado:
+
+```JSON
+[
+    {
+        "date": "2026-10-05 12:30:01",
+        "luminosidade": 1234
+    }
+]
+```
+Esta implementação atende ao Nível 4 de maturidade da TpM, viabilizando o processamento em lotes (Nível 5) e exibição em Dashboards históricos (Nível 6).
 
 ---
 
@@ -250,9 +279,6 @@ Ideal para:
 
 Este projeto está licenciado sob a licença MIT — veja o arquivo [LICENSE](LICENSE) para mais detalhes.
 
-Você é livre para usar, modificar e distribuir este projeto para fins de estudo e ensino.```
+Você é livre para usar, modificar e distribuir este projeto para fins de estudo e ensino.
 
 ---
-
-
-
