@@ -2,6 +2,9 @@ import paho.mqtt.client as mqtt
 from paho.mqtt.enums import CallbackAPIVersion
 import time
 import threading
+import json
+import os  # <-- ADICIONADO: Para manipulação de pastas e caminhos de arquivos
+from datetime import datetime  # <-- ADICIONADO: Para salvar a data de quando recebeu o dado
 
 # CONFIGURAÇÕES DO BROKER
 BROKER = "broker.hivemq.com"   
@@ -11,6 +14,15 @@ TOPIC_LED = "sensor/led"
 TAMANHO_PACOTE = 52
 LIMIAR = 5  # Ajustado para escala do ESP32 (0 a 4095)
 TIMEOUT_RESPOSTA = 10.0  # Tempo máximo de espera em segundos
+
+# --- CONFIGURAÇÃO DE CAMINHOS AUTOMÁTICOS ---
+# Descobre a pasta onde este arquivo .py está salvo
+DIRETORIO_ATUAL = os.path.dirname(os.path.abspath(__file__))
+# Define o caminho para a pasta "dados" dentro do diretório atual
+PASTA_DADOS = os.path.join(DIRETORIO_ATUAL, "dados")
+# Define o caminho completo para o arquivo JSON dentro da pasta "dados"
+ARQUIVO_DADOS = os.path.join(PASTA_DADOS, "dados_luminosidade.json")
+# --------------------------------------------
 
 # Constantes para os comandos dos LEDs
 LED_DESLIGADO = 0
@@ -22,6 +34,37 @@ comando_led_atual = LED_DESLIGADO
 
 # EVENTO DE SINCRONIZAÇÃO: Controla a espera da resposta do sensor
 resposta_recebida = threading.Event()
+
+def salvar_dados_json(luminosidade):
+    """Garante a persistência dos dados em um arquivo JSON local dentro da pasta 'dados'."""
+    try:
+        # <-- MODIFICADO: Cria a pasta "dados" se ela não existir. Se já existir, não faz nada.
+        os.makedirs(PASTA_DADOS, exist_ok=True)
+
+        # 1. Tenta ler o arquivo existente. Se não existir ou estiver vazio, começa uma lista nova.
+        try:
+            with open(ARQUIVO_DADOS, "r") as f:
+                dados = json.load(f)
+                if not isinstance(dados, list):  # Garante que o conteúdo seja uma lista
+                    dados = []
+        except (FileNotFoundError, json.JSONDecodeError):
+            dados = []
+
+        # 2. Cria o novo registro com a data formatada
+        novo_registro = {
+            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "luminosidade": luminosidade
+        }
+        dados.append(novo_registro)
+
+        # 3. Salva a lista atualizada de volta no arquivo dentro da pasta específica
+        with open(ARQUIVO_DADOS, "w") as f:
+            json.dump(dados, f, indent=4)
+        print(f"💾 Dados salvos com sucesso em: {ARQUIVO_DADOS}")
+
+    except Exception as e:
+        # Se houver erro de permissão ou disco cheio, o sistema avisa mas NÃO trava a aplicação
+        print(f"⚠️ Erro ao persistir dados no JSON: {e}")
 
 def on_connect(client, userdata, flags, reason_code, properties):
     print(f"Conectado ao broker ({BROKER}), código de retorno: {reason_code}")
@@ -43,6 +86,9 @@ def on_message(client, userdata, msg):
         # Extrai a luminosidade (bytes 17 e 18)
         luminosidade = (payload[17] << 8) | payload[18]
         print(f"\n[UL] Resposta recebida do Sensor. Luminosidade: {luminosidade}")
+
+        # Chamada da função para persistência dos dados (agora salvando na pasta correta)
+        salvar_dados_json(luminosidade)
 
         # Lógica de decisão para o PRÓXIMO envio
         if luminosidade < LIMIAR:
