@@ -227,7 +227,7 @@ Esta implementação atende ao **Nível 4** de maturidade da TpM, viabilizando o
 
 Para extrair *insights* focados, o projeto conta com um script de processamento em lote que consome os arquivos da pasta `dados/`, filtra fatias temporais específicas e plota gráficos informativos com a média da luminosidade estrita ao período analisado.
 
-<img src="computador/dados/analise_nivel5_20260523_003311.png" alt="Diagrama mostrando arquitetura de comunicação entre sensores LoRa, gateway LoRaWAN monocanal, broker MQTT e cliente Python" width="600">
+<img src="img/analise_nivel5_20260523_003311.png" alt="Gráfico mostrando a luminosidade conforme o tempo" width="600">
 
 ### Executando a Análise
 

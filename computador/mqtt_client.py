@@ -1,17 +1,17 @@
-import paho.mqtt.client as mqtt
+import paho.mqtt.client as mqtt # <-- ADICIONADO: Para a conexão com o broker
 from paho.mqtt.enums import CallbackAPIVersion
-import time
-import threading
-import json
+import time # <-- ADICIONADO: Para a conexão com o broker
+import threading # <-- ADICIONADO: Para começar uma tarefa 
+import json # <-- ADICIONADO: Formatação dos dados
 import os  # <-- ADICIONADO: Para manipulação de pastas e caminhos de arquivos
 from datetime import datetime  # <-- ADICIONADO: Para salvar a data de quando recebeu o dado
 
 # CONFIGURAÇÕES DO BROKER
-BROKER = "broker.hivemq.com"   
-TOPIC_LUM = "sensor/luminosidade"
-TOPIC_LED = "sensor/led"
+BROKER = "broker.hivemq.com"   # Servidor de teste
+TOPIC_LUM = "sensor/luminosidade" # Tópico de UP LINK (recebe os dados)
+TOPIC_LED = "sensor/led" # Tópico de DOWN LINK (envia comandos)
 
-TAMANHO_PACOTE = 52
+TAMANHO_PACOTE = 52 # Tamanho de pacote pré-definido
 LIMIAR = 5  # Ajustado para escala do ESP32 (0 a 4095)
 TIMEOUT_RESPOSTA = 10.0  # Tempo máximo de espera em segundos
 

@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 ================================================================================
 Nível 5 - Processamento Analítico Básico (TpM)
