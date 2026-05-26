@@ -17,12 +17,15 @@ Uso:
 ================================================================================
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Dict, List
 
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
@@ -38,7 +41,8 @@ DURACAO_PADRAO_JANELA_SEGUNDOS = 60  # 1 minuto (pode ser reduzido para 30s)
 # CORE: LEITURA E PARSING
 # -----------------------------------------------------------------------------
 
-def carregar_todos_json(diretorio: Path) -> list[dict]:
+
+def carregar_todos_json(diretorio: Path) -> List[Dict]:
     """
     Lê todos os arquivos *.json do diretório especificado, faz o parsing
     e retorna uma lista plana de registros.
@@ -60,7 +64,8 @@ def carregar_todos_json(diretorio: Path) -> list[dict]:
     registros = []
     for arquivo in arquivos_json:
         try:
-            with open(arquivo, "r", encoding="utf-8") as f:
+            # utf-8-sig ignora BOM do Windows automaticamente
+            with open(arquivo, "r", encoding="utf-8-sig") as f:
                 conteudo = f.read().strip()
                 if not conteudo:
                     continue
@@ -69,20 +74,29 @@ def carregar_todos_json(diretorio: Path) -> list[dict]:
                     dados = json.loads(conteudo)
                 else:
                     # JSON lines: um objeto por linha
-                    dados = [json.loads(linha) for linha in conteudo.splitlines() if linha.strip()]
+                    dados = []
+                    for i, linha in enumerate(conteudo.splitlines(), start=1):
+                        linha = linha.strip()
+                        if not linha:
+                            continue
+                        try:
+                            dados.append(json.loads(linha))
+                        except json.JSONDecodeError as e:
+                            print(f"⚠️  Linha {i} ignorada em {arquivo.name}: {e}")
+                            continue
 
                 if isinstance(dados, list):
                     registros.extend(dados)
                 else:
                     registros.append(dados)
-        except (json.JSONDecodeError, UnicodeDecodeError, IOError) as e:
+        except (UnicodeDecodeError, IOError) as e:
             print(f"⚠️  Ignorando {arquivo.name}: {e}")
             continue
 
     return registros
 
 
-def parse_registros(registros: list[dict]) -> tuple[list[datetime], list[int]]:
+def parse_registros(registros: List[Dict]) -> tuple[List[datetime], List[int]]:
     """
     Extrai e converte os campos 'date' e 'luminosidade' dos registros brutos.
 
@@ -99,7 +113,13 @@ def parse_registros(registros: list[dict]) -> tuple[list[datetime], list[int]]:
                 continue
 
             dt = datetime.strptime(str(data_str).strip(), FORMATO_DATA)
-            lum = int(lum_val)
+            lum = int(float(lum_val))  # aceita "4095.0" sem quebrar
+
+            # Validação de faixa ADC típica do ESP32 (12 bits)
+            if not (0 <= lum <= 4095):
+                print(f"⚠️  Registro {i} fora da faixa ADC descartado: {lum}")
+                continue
+
             parsed.append((dt, lum))
         except (ValueError, TypeError, KeyError) as e:
             print(f"⚠️  Registro {i} inválido ({e}): {item}")
@@ -120,12 +140,13 @@ def parse_registros(registros: list[dict]) -> tuple[list[datetime], list[int]]:
 # CORE: FILTRO TEMPORAL
 # -----------------------------------------------------------------------------
 
+
 def filtrar_janela(
-    tempos: list[datetime],
-    luminosidades: list[int],
+    tempos: List[datetime],
+    luminosidades: List[int],
     inicio: datetime | None = None,
     duracao_segundos: int = DURACAO_PADRAO_JANELA_SEGUNDOS,
-) -> tuple[list[datetime], list[int], datetime, datetime]:
+) -> tuple[List[datetime], List[int], datetime, datetime]:
     """
     Isola na memória apenas os dados pertencentes à janela temporal especificada.
 
@@ -166,7 +187,8 @@ def filtrar_janela(
 # CORE: PROCESSAMENTO ANALÍTICO
 # -----------------------------------------------------------------------------
 
-def calcular_media(luminosidades: list[int]) -> float:
+
+def calcular_media(luminosidades: List[int]) -> float:
     """Calcula a média aritmética da lista de luminosidades."""
     if not luminosidades:
         return 0.0
@@ -177,9 +199,10 @@ def calcular_media(luminosidades: list[int]) -> float:
 # CORE: VISUALIZAÇÃO
 # -----------------------------------------------------------------------------
 
+
 def plotar_analise(
-    tempos: list[datetime],
-    luminosidades: list[int],
+    tempos: List[datetime],
+    luminosidades: List[int],
     media: float,
     inicio: datetime,
     fim: datetime,
@@ -218,29 +241,30 @@ def plotar_analise(
         zorder=2,
     )
 
-    # Preenchimento sutil entre a série e a média
-    ax.fill_between(
-        tempos,
-        luminosidades,
-        media,
-        where=[l >= media for l in luminosidades],
-        color="#2E86AB",
-        alpha=0.15,
-        interpolate=True,
-    )
-    ax.fill_between(
-        tempos,
-        luminosidades,
-        media,
-        where=[l < media for l in luminosidades],
-        color="#E94F37",
-        alpha=0.15,
-        interpolate=True,
-    )
+    # Preenchimento sutil entre a série e a média (só se houver mais de 1 ponto)
+    if len(tempos) > 1:
+        ax.fill_between(
+            tempos,
+            luminosidades,
+            media,
+            where=[l >= media for l in luminosidades],
+            color="#2E86AB",
+            alpha=0.15,
+            interpolate=True,
+        )
+        ax.fill_between(
+            tempos,
+            luminosidades,
+            media,
+            where=[l < media for l in luminosidades],
+            color="#E94F37",
+            alpha=0.15,
+            interpolate=True,
+        )
 
-    # Formatação do eixo X (tempo real)
+    # Formatação do eixo X (tempo real) — AutoDateLocator evita eixo vazio em janelas curtas
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
-    ax.xaxis.set_major_locator(mdates.SecondLocator(interval=max(5, (fim - inicio).seconds // 6)))
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
 
     # Rótulos e título
     duracao = (fim - inicio).total_seconds()
@@ -291,15 +315,21 @@ def plotar_analise(
 # ORQUESTRAÇÃO PRINCIPAL
 # -----------------------------------------------------------------------------
 
-def executar_analise(inicio_str: str | None, duracao: int, salvar: bool) -> None:
+
+def executar_analise(
+    dados_dir: Path,
+    inicio_str: str | None,
+    duracao: int,
+    salvar: bool,
+) -> None:
     """Pipeline completo: carga → parse → filtro → métricas → visualização."""
     print("=" * 60)
     print("🔬 NÍVEL 5 — PROCESSAMENTO ANALÍTICO BÁSICO (TpM)")
     print("=" * 60)
 
     # 1. Carga
-    print(f"📂 Lendo arquivos JSON de: {DADOS_DIR}")
-    registros_brutos = carregar_todos_json(DADOS_DIR)
+    print(f"📂 Lendo arquivos JSON de: {dados_dir}")
+    registros_brutos = carregar_todos_json(dados_dir)
     print(f"   └─ {len(registros_brutos)} registros brutos carregados")
 
     # 2. Parsing
@@ -335,6 +365,7 @@ def executar_analise(inicio_str: str | None, duracao: int, salvar: bool) -> None
 # CLI
 # -----------------------------------------------------------------------------
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Nível 5 TpM: Processamento Analítico Básico de dados IoT"
@@ -367,12 +398,11 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    global DADOS_DIR
-    if args.dados_dir:
-        DADOS_DIR = Path(args.dados_dir)
+    dados_dir = Path(args.dados_dir) if args.dados_dir else DADOS_DIR
 
     try:
         executar_analise(
+            dados_dir=dados_dir,
             inicio_str=args.inicio,
             duracao=args.duracao,
             salvar=not args.no_save,

@@ -1,26 +1,26 @@
-import paho.mqtt.client as mqtt # <-- ADICIONADO: Para a conexão com o broker
+import paho.mqtt.client as mqtt
 from paho.mqtt.enums import CallbackAPIVersion
-import time # <-- ADICIONADO: Para a conexão com o broker
-import threading # <-- ADICIONADO: Para começar uma tarefa 
-import json # <-- ADICIONADO: Formatação dos dados
-import os  # <-- ADICIONADO: Para manipulação de pastas e caminhos de arquivos
-from datetime import datetime  # <-- ADICIONADO: Para salvar a data de quando recebeu o dado
+import time
+import threading
+import json
+import os
+from datetime import datetime
+import struct
+
+PROTOCOL_VERSION = 0x01
 
 # CONFIGURAÇÕES DO BROKER
-BROKER = "broker.hivemq.com"   # Servidor de teste
-TOPIC_LUM = "sensor/luminosidade" # Tópico de UP LINK (recebe os dados)
-TOPIC_LED = "sensor/led" # Tópico de DOWN LINK (envia comandos)
+BROKER = "broker.hivemq.com"
+TOPIC_LUM = "sensor/luminosidade"
+TOPIC_LED = "sensor/led"
 
-TAMANHO_PACOTE = 52 # Tamanho de pacote pré-definido
-LIMIAR = 5  # Ajustado para escala do ESP32 (0 a 4095)
-TIMEOUT_RESPOSTA = 10.0  # Tempo máximo de espera em segundos
+TAMANHO_PACOTE = 52
+LIMIAR = 5
+TIMEOUT_RESPOSTA = 10.0
 
 # --- CONFIGURAÇÃO DE CAMINHOS AUTOMÁTICOS ---
-# Descobre a pasta onde este arquivo .py está salvo
 DIRETORIO_ATUAL = os.path.dirname(os.path.abspath(__file__))
-# Define o caminho para a pasta "dados" dentro do diretório atual
 PASTA_DADOS = os.path.join(DIRETORIO_ATUAL, "dados")
-# Define o caminho completo para o arquivo JSON dentro da pasta "dados"
 ARQUIVO_DADOS = os.path.join(PASTA_DADOS, "dados_luminosidade.json")
 # --------------------------------------------
 
@@ -29,120 +29,177 @@ LED_DESLIGADO = 0
 LED_VERMELHO  = 1
 LED_AMARELO   = 2
 
-# VARIÁVEL GLOBAL: Guarda o último estado decidido pelo Python
+# Camada MAC
+BYTE_SLEEPTIME = 5
+BYTE_PROTOCOL_VERSION = 6
+
+# Camada NET
+BYTE_ID_DESTINO = 8
+BYTE_ID_ORIGEM = 10
+
+# Camada TRANSP
+BYTE_COUNT_DL = 12
+BYTE_COUNT_UL = 14
+BYTE_LUMINOSIDADE = 17
+BYTE_LED_CMD = 34
+BYTE_PACKET_ID = 36  # NOVO: 2 bytes para identificar cada transação
+
+sleeptime = 5
+id_origem = 0
+id_destino = 1
+
+# Variáveis globais protegidas por Lock
+_lock = threading.Lock()
+quantidade_pacote_DL = 0
+quantidade_pacote_UL = 0
+packet_id_atual = 0
 comando_led_atual = LED_DESLIGADO
 
-# EVENTO DE SINCRONIZAÇÃO: Controla a espera da resposta do sensor
-resposta_recebida = threading.Event()
+# Evento e packet_id da transação atual (evita condição de corrida)
+_tx_event = threading.Event()
+_tx_packet_id = -1
 
-def salvar_dados_json(luminosidade):
-    """Garante a persistência dos dados em um arquivo JSON local dentro da pasta 'dados'."""
+
+def salvar_dados_json(luminosidade, pkt_id):
+    """Salva dados em JSON local."""
     try:
-        # <-- MODIFICADO: Cria a pasta "dados" se ela não existir. Se já existir, não faz nada.
         os.makedirs(PASTA_DADOS, exist_ok=True)
-
-        # 1. Tenta ler o arquivo existente. Se não existir ou estiver vazio, começa uma lista nova.
         try:
             with open(ARQUIVO_DADOS, "r") as f:
                 dados = json.load(f)
-                if not isinstance(dados, list):  # Garante que o conteúdo seja uma lista
+                if not isinstance(dados, list):
                     dados = []
         except (FileNotFoundError, json.JSONDecodeError):
             dados = []
 
-        # 2. Cria o novo registro com a data formatada
         novo_registro = {
             "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "luminosidade": luminosidade
+            "luminosidade": luminosidade,
+            "packet_id": pkt_id
         }
         dados.append(novo_registro)
 
-        # 3. Salva a lista atualizada de volta no arquivo dentro da pasta específica
         with open(ARQUIVO_DADOS, "w") as f:
             json.dump(dados, f, indent=4)
         print(f"💾 Dados salvos com sucesso em: {ARQUIVO_DADOS}")
 
     except Exception as e:
-        # Se houver erro de permissão ou disco cheio, o sistema avisa mas NÃO trava a aplicação
         print(f"⚠️ Erro ao persistir dados no JSON: {e}")
 
+
 def on_connect(client, userdata, flags, reason_code, properties):
-    print(f"Conectado ao broker ({BROKER}), código de retorno: {reason_code}")
+    if reason_code != 0:
+        print(f"❌ Conexão recusada pelo broker, código: {reason_code}")
+        return
+
+    print(f"Conectado ao broker ({BROKER}), código: {reason_code}")
     client.subscribe(TOPIC_LUM)
-    
-    # Inicia a thread de requisições apenas uma vez na primeira conexão
+
     if not hasattr(on_connect, "thread_iniciada"):
         threading.Thread(target=loop_requisicao, args=(client,), daemon=True).start()
         on_connect.thread_iniciada = True
 
+
 def on_message(client, userdata, msg):
-    global comando_led_atual
+    global quantidade_pacote_UL, comando_led_atual
+
     payload = msg.payload
-    
     if len(payload) != TAMANHO_PACOTE:
+        print(f"⚠️ Payload ignorado: tamanho {len(payload)} (esperado {TAMANHO_PACOTE})")
         return
 
     try:
-        # Extrai a luminosidade (bytes 17 e 18)
-        luminosidade = (payload[17] << 8) | payload[18]
-        print(f"\n[UL] Resposta recebida do Sensor. Luminosidade: {luminosidade}")
-
-        # Chamada da função para persistência dos dados (agora salvando na pasta correta)
-        salvar_dados_json(luminosidade)
-
-        # Lógica de decisão para o PRÓXIMO envio
-        if luminosidade < LIMIAR:
-            print(f"→ Baixa luminosidade (< {LIMIAR}). Configurado para o próximo envio: LED VERMELHO")
-            comando_led_atual = LED_VERMELHO
-        else:
-            print(f"→ Luminosidade adequada (>= {LIMIAR}). Configurado para o próximo envio: LED AMARELO")
-            comando_led_atual = LED_AMARELO
-
-        # CRÍTICO: Avisa a thread de envio que a resposta chegou!
-        resposta_recebida.set()
-
+        # Lê packet_id (2 bytes, big-endian)
+        packet_id_recebido = struct.unpack_from(">H", payload, BYTE_PACKET_ID)[0]
+        # Lê luminosidade (2 bytes, big-endian)
+        luminosidade = struct.unpack_from(">H", payload, BYTE_LUMINOSIDADE)[0]
     except Exception as e:
-        print(f"Erro ao processar pacote recebido: {e}")
+        print(f"⚠️ Erro ao extrair dados do pacote: {e}")
+        return
+
+    with _lock:
+        quantidade_pacote_UL = (quantidade_pacote_UL + 1) & 0xFFFF
+        ul_local = quantidade_pacote_UL
+
+    print(f"\n[UL] Resposta recebida do Sensor. packet_id={packet_id_recebido}, Luminosidade={luminosidade}")
+
+    # Verifica se é a resposta esperada
+    global _tx_packet_id, _tx_event
+    if packet_id_recebido == _tx_packet_id:
+        _tx_event.set()
+    else:
+        print(f"⚠️ packet_id={packet_id_recebido} não corresponde ao esperado ({_tx_packet_id}). Possível resposta tardia.")
+
+    salvar_dados_json(luminosidade, packet_id_recebido)
+
+    # Lógica de decisão para o PRÓXIMO envio
+    if luminosidade < LIMIAR:
+        print(f"→ Baixa luminosidade (< {LIMIAR}). Configurado para o próximo envio: LED VERMELHO")
+        comando_led_atual = LED_VERMELHO
+    else:
+        print(f"→ Luminosidade adequada (>= {LIMIAR}). Configurado para o próximo envio: LED AMARELO")
+        comando_led_atual = LED_AMARELO
+
 
 def loop_requisicao(client):
-    """ Envia o pacote, aguarda a resposta ou dá timeout de 10 segundos """
+    global quantidade_pacote_DL, comando_led_atual, packet_id_atual
+    global _tx_event, _tx_packet_id
+
     print("Agendador de requisições iniciado (Modo: Request-Response)...")
-    
+    timeouts_seguidos = 0
+
     while True:
         if client.is_connected():
-            # Garante que o evento está limpo (falso) antes de enviar
-            resposta_recebida.clear()
-            
+            # Cria um novo Event limpo para esta transação
+            _tx_event = threading.Event()
+
+            with _lock:
+                packet_id_atual = (packet_id_atual + 1) & 0xFFFF
+                pkt_id = packet_id_atual
+                quantidade_pacote_DL = (quantidade_pacote_DL + 1) & 0xFFFF
+                dl_local = quantidade_pacote_DL
+                ul_local = quantidade_pacote_UL
+
+            _tx_packet_id = pkt_id
+
             # Monta o pacote de 52 bytes
             pacote_requisicao = bytearray(TAMANHO_PACOTE)
-            pacote_requisicao[8] = 0x01   # ID do sensor
-            pacote_requisicao[10] = 0x00  # ID do gateway
-            pacote_requisicao[34] = comando_led_atual
-            
-            print(f"\n[DL] Enviando requisição. Comando LED atual (byte 34): {comando_led_atual}")
+            pacote_requisicao[BYTE_SLEEPTIME] = sleeptime
+            pacote_requisicao[BYTE_PROTOCOL_VERSION] = PROTOCOL_VERSION
+            struct.pack_into(">H", pacote_requisicao, BYTE_ID_DESTINO, id_destino)
+            struct.pack_into(">H", pacote_requisicao, BYTE_ID_ORIGEM, id_origem)
+            struct.pack_into(">H", pacote_requisicao, BYTE_COUNT_DL, dl_local)
+            struct.pack_into(">H", pacote_requisicao, BYTE_COUNT_UL, ul_local)
+            pacote_requisicao[BYTE_LED_CMD] = comando_led_atual
+            struct.pack_into(">H", pacote_requisicao, BYTE_PACKET_ID, pkt_id)
+
+            print(f"\n[DL] Enviando requisição. packet_id={pkt_id}, LED={comando_led_atual}")
             client.publish(TOPIC_LED, pacote_requisicao)
-            
+
             print(f" Aguardando resposta do sensor (Timeout: {TIMEOUT_RESPOSTA}s)...")
-            
-            # Bloqueia a thread aqui até receber o .set() ou estourar o tempo de 10s
-            houve_resposta = resposta_recebida.wait(timeout=TIMEOUT_RESPOSTA)
-            
+            houve_resposta = _tx_event.wait(timeout=TIMEOUT_RESPOSTA)
+
             if houve_resposta:
-                print(" Sucesso! Resposta confirmada. Preparando próximo envio em 1 segundo...")
-                time.sleep(1) # Pequena pausa opcional para não inundar a rede se a resposta for instantânea
+                print(" Sucesso! Resposta confirmada. Próximo envio em 1s...")
+                timeouts_seguidos = 0
+                time.sleep(1)
             else:
-                print(f"⚠️ [TIMEOUT] Passaram-se {TIMEOUT_RESPOSTA}s sem resposta do sensor. Tentando novamente...")
+                timeouts_seguidos += 1
+                espera = min(2 ** timeouts_seguidos, 30)  # backoff simples, máx 30s
+                print(f"⚠️ [TIMEOUT] packet_id={pkt_id} sem resposta. Tentando novamente em {espera}s...")
+                time.sleep(espera)
         else:
-            # Se o cliente MQTT desconectar, espera 1 segundo antes de checar novamente
             time.sleep(1)
 
-# ============================================================================
-# CONFIGURAÇÃO DO CLIENTE - PADRÃO OFICIAL API V2
-# ============================================================================
-client = mqtt.Client(CallbackAPIVersion.VERSION2)
-client.on_connect = on_connect
-client.on_message = on_message
 
-print("Iniciando script de automação Python (Modo Síncrono)")
-client.connect(BROKER, 1883, 60)
-client.loop_forever()
+def main():
+    print("Iniciando script de automação Python (Modo Síncrono)")
+    client = mqtt.Client(CallbackAPIVersion.VERSION2)
+    client.on_connect = on_connect
+    client.on_message = on_message
+    client.connect(BROKER, 1883, 60)
+    client.loop_forever()
+
+
+if __name__ == "__main__":
+    main()
