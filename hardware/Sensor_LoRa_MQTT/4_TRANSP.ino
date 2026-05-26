@@ -10,14 +10,15 @@ void Transp_radio_receive_DL() {
 
 //================ CAMADA DE TRANSPORTE DE UL ========
 void Transp_radio_send_UL() { 
-  // Aloca no pacote de UL o valor contador de pacotes de DL
-  PacoteUL[12] = (contador_pkt_DL/256);
-  PacoteUL[13] = (contador_pkt_DL%256);
-  
-  contador_pkt_UL = contador_pkt_UL + 1;
-  PacoteUL[14] = (contador_pkt_DL/256);
-  PacoteUL[15] = (contador_pkt_DL%256);
+    
+    // Contador de pacotes DL (bytes 12-13)
+    PacoteUL[12] = (contador_pkt_DL >> 8) & 0xFF;
+    PacoteUL[13] = contador_pkt_DL & 0xFF;
+    
+    // Incrementa e armazena contador de pacotes UL (bytes 14-15)
+    contador_pkt_UL = contador_pkt_UL + 1;
+    PacoteUL[14] = (contador_pkt_UL >> 8) & 0xFF;
+    PacoteUL[15] = contador_pkt_UL & 0xFF;
 
-//============ CHAMA A CAMADA DE REDE DE UL
-  Net_radio_send_UL();
+    Net_radio_send_UL();
 }
