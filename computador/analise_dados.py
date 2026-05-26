@@ -115,7 +115,7 @@ def parse_registros(registros: List[Dict]) -> tuple[List[datetime], List[int]]:
             dt = datetime.strptime(str(data_str).strip(), FORMATO_DATA)
             lum = int(float(lum_val))  # aceita "4095.0" sem quebrar
 
-            # Validação de faixa ADC típica do ESP32 (12 bits)
+            # Validação de faixa ADC típicaa do ESP32 (12 bits)
             if not (0 <= lum <= 4095):
                 print(f"⚠️  Registro {i} fora da faixa ADC descartado: {lum}")
                 continue
