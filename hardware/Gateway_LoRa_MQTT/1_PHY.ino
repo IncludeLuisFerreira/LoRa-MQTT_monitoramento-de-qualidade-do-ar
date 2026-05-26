@@ -6,8 +6,8 @@ void Phy_MQTT_receive_DL(char* topic, byte* payload, unsigned int length) {
   Serial.print("[MQTT] Mensagem recebida no tópico: ");
   Serial.println(topic);
   
-  // CORREÇÃO: Removido excesso de chaves incorretas e corrigido o Serial.println
-  if (length != TAMANHO_PACOTE) {
+  // Descarta pacotes fora do tamanho
+  if (length != TAMANHO_PACOTE) { 
     Serial.println("Pacote inválido: 'Tamanho incorreto', descartando...");
     return;
   }
@@ -17,9 +17,7 @@ void Phy_MQTT_receive_DL(char* topic, byte* payload, unsigned int length) {
     PacoteDL[i] = payload[i];
   }
 
-  ID_gateway = PacoteDL[10]; 
-
-  Serial.println(PacoteDL[34]);
+  PacoteDL[10] = ID_GATEWAY;
 
   Serial.println("[MQTT -> LoRa] Repassando pacote DL via rádio...");
   Phy_radio_send_DL();
@@ -77,9 +75,9 @@ void Phy_MQTT_send_UL() {
   PacoteUL[3] = (SNR_UL_inteiro);
   
   // Transmissão do pacote via MQTT para o Broker
-  if (client.connected()) {
+  if (mqtt.connected()) {
     Serial.println("[LoRa -> MQTT] Publicando pacote UL no Broker...");
-    if (client.publish(topic_UL, PacoteUL, TAMANHO_PACOTE)) {
+    if (mqtt.publish(TOPIC_UL, PacoteUL, TAMANHO_PACOTE)) {
       Serial.println("[MQTT] Envio de UL realizado com sucesso!");
     } else {
       Serial.println("[Erro] Falha ao publicar UL no Broker.");

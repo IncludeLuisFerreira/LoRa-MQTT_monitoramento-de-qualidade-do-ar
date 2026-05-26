@@ -1,24 +1,22 @@
 /*
-  MQTT MoT LoRa | WissTek IoT
-  Versão 1.0: Luís Felipe Ferreira e Maria Eduarda
+  AirSense Gateway v2.0 | WissTek IoT
+  Bridge MQTT-LoRa transparente para protocolo MoT/TpM
+  
+  Funcionalidade:
+  - Recebe pacotes LoRa (20 bytes TpM) do sensor
+  - Envia envelope JSON com payload Base64 + metadados de rádio via MQTT
+  - Recebe comandos DL via MQTT e transmite imediatamente por LoRa
+  
+  Hardware: PK-LoRa (ESP32 + RFM95W)
 */
-
-//=======================================================================
-//                     1 - Bibliotecas
-//=======================================================================
-#include <SPI.h>  
+#include <SPI.h>
 #include <LoRa.h>
-#include <WiFi.h>         // Necessário para se conectar na internet
-#include <PubSubClient.h> // Necessário para o protocolo MQTT
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <ArduinoJson.h>
+#include "secrets.h"
 
-#include "secrets.h"      // Arquivo onde estarão declaradas as senhas e IP do servidor
-
-//=======================================================================
-//                     2 - Variáveis e Mapeamento
-//=======================================================================
-// As variávies utlizadas estão no arquivo de bibliotecas
-
-// ============= Pinagem na placa da PK-LoRa da ligação do RFM95 com o ESP32
+// ============= PINAGEM PK-LoRa =============
 #define SCK_PIN    5
 #define MISO_PIN  19
 #define MOSI_PIN  27
@@ -26,122 +24,225 @@
 #define RST_PIN   14
 #define DIO0_PIN  26
 
-// ============= CAMADA FÍSICA ============= 
-// Parâmetros do LoRa
-#define FREQUENCY_IN_HZ       915E6   // LoRa Frequency
-#define txPower               17              // TX power in dBm, defaults to 17
-#define spreadingFactor       7        // ranges from 6-12,default 7
-#define signalBandwidth       125E3    // signal bandwidth in Hz
-#define codingRateDenominator 8  // denominator of the coding rate
+// ============= ID GATEWAY =============
+#define ID_GATEWAY 0
 
-// Pinos de Saída Digitais (Opcional, mas útil para debug no Gateway)
+// ============= PARÂMETROS LoRa =============
+#define FREQUENCY_IN_HZ       915E6
+#define TX_POWER              17
+#define SPREADING_FACTOR      7
+#define SIGNAL_BANDWIDTH      125E3
+#define CODING_RATE_DENOM     8
+
+// ============= LEDS =============
 #define LED_VERMELHO_PIN 15
 #define LED_VERDE_PIN     4
 
-// ============== Variáveis usadas no código do gateway ==============
-int RSSI_dBm_UL; // Variável com a potência rádio recebida (RSSI) no UL em dBm medida pelo RFM95
-int RSSI_UL; // Variável de mapeamento da RSSI medida em um valor de 0 a 255 para colocar no pacote UL
-float SNR_UL; // Variável com a relação sinal ruído de DL
-int SNR_UL_inteiro; // Variável inteira para enviar a SNR, que será convertida para a SNR original no Python
+// ============= TAMANHO DO PACOTE TpM =============
+#define TAMANHO_PACOTE 20
 
-// ============== CAMADA MAC ==============
-#define TAMANHO_PACOTE 52
-byte PacoteDL[TAMANHO_PACOTE];
-byte PacoteUL[TAMANHO_PACOTE];
-int ID_gateway;    // Variável com o ID_gateway que estará no pacote de DL byte 10
+// ============= BUFFERS =============
+static byte PacoteDL[TAMANHO_PACOTE];
+static byte PacoteUL[TAMANHO_PACOTE];
 
-// ============== Variáveis para a comunicação WIFI ==============
+// ============= VARIÁVEIS DE RÁDIO =============
+int RSSI_dBm_UL;
+int RSSI_UL;
+float SNR_UL;
+int SNR_UL_inteiro;
 
-WiFiClient gatewayClient;
-PubSubClient client(gatewayClient);
+// ============= MQTT =============
+WiFiClient wifiClient;
+PubSubClient mqtt(wifiClient);
 
+// ============= TIMERS =============
+unsigned long lastReconnectAttempt = 0;
+unsigned long lastHeartbeat = 0;
+#define HEARTBEAT_INTERVAL 30000  // 30 segundos
+
+// ============= PROTÓTIPOS =============
+void setupWiFi();
+bool connectMQTT();
+void heartbeat();
+void callbackMQTT(char* topic, byte* payload, unsigned int length);
+void Phy_radio_receive_UL();
+void Phy_MQTT_send_UL();
+void Phy_MQTT_receive_DL(char* topic, byte* payload, unsigned int length);
+void Phy_radio_send_DL();
 
 //=======================================================================
-//                     3 - Setup de inicialização
+//                     SETUP
 //=======================================================================
 void setup() {
-
-  //================= INICIALIZA SERIAL
   Serial.begin(115200);
 
-   // Define as funções como OUTPUT dos pinos dos LEDs
+  // LEDs
   pinMode(LED_VERMELHO_PIN, OUTPUT);
   pinMode(LED_VERDE_PIN, OUTPUT);
-  
-  // Garante que os LEDs iniciem desligados
+
   digitalWrite(LED_VERMELHO_PIN, LOW);
   digitalWrite(LED_VERDE_PIN, LOW);
 
-  //-------------------- INICIALIZAÇÃO MÓDULO RF95
-  
-  // 1. Remapeia o barramento SPI para os pinos do Kit PKLORa
-  SPI.begin(SCK_PIN, MISO_PIN, MOSI_PIN, NSS_PIN);
+  Serial.println("\n========================================");
+  Serial.println("  AirSense Gateway v2.0");
+  Serial.println("  Bridge MQTT-LoRa (MoT/TpM)");
+  Serial.println("========================================\n");
 
-  // 2. Informa à biblioteca LoRa os pinos de controle
+  // Inicializa LoRa
+  SPI.begin(SCK_PIN, MISO_PIN, MOSI_PIN, NSS_PIN);
   LoRa.setPins(NSS_PIN, RST_PIN, DIO0_PIN);
 
   if (!LoRa.begin(FREQUENCY_IN_HZ)) {
-    Serial.println("Erro ao iniciar LoRa");
-  }
-
-  //-------------------- CONECTA O WIFI -------------------- //
-  WiFi.begin(ssid, password);
-
-  Serial.print("Conectando ao Wifi");
-  
-  // Loop enquanto não se conectar no WIFI
-  while(WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-
-  //-------------------- CONFIGURA CONEXÃO COM SERVIDOR MQTT -------------------- //
-  Serial.print("Conectando ao Broker MQTT");
-
-  // Informa à biblioteca o endereço (IP ou URL) e a porta do servidor MQTT que ela deve usar
-  client.setServer(mqtt_server, mqtt_port);
-
-  // Gera um ID único para este ESP32 (ex: "ESP32Client_4829"), evitando que ele caia caso outro ESP32 use o mesmo nome no broker público
-  String clientId = "ESP32Client_" + String(random(0, 9999));
-  
-  // Cria um loop que ficará rodando ENQUANTO o ESP32 não estiver efetivamente conectado ao Broker
-  while (!client.connected()) {
-    // Tenta realizar a conexão usando o ID único gerado.
-    if (client.connect(clientId.c_str())) {
-      Serial.println("Conectado com sucesso!");
-      client.subscribe(topic_DL);     // Se increve no topico
-    } else {
-      // Mensagens de erro caso conexão falhe
-      Serial.print("Falhou, estado: ");
-      Serial.print(client.state());
-      Serial.println(" Tentando novamente em 2 segundos...");
-      delay(2000);
+    Serial.println("[ERRO] Falha ao iniciar modulo LoRa!");
+    while (1) {   // Sinalização do erro
+      blinkLED(LED_VERMELHO_PIN, 100, -1);
+      delay(100);
     }
   }
 
-  client.setCallback(Phy_MQTT_receive_DL);  // Função que será chamada caso nova mensagem
-  
-  Serial.println("Módulo LoRa iniciado normalmente");
-  LoRa.setTxPower(txPower); 
-  LoRa.setSpreadingFactor(spreadingFactor); 
-  LoRa.setSignalBandwidth(signalBandwidth); 
-  LoRa.setCodingRate4(codingRateDenominator); 
-  
-  Serial.println("Gateway LoRa Inicializado com Sucesso!");
-  digitalWrite(LED_VERDE_PIN, HIGH);
-  delay(1000);
-  digitalWrite(LED_VERDE_PIN, LOW);
+  LoRa.setTxPower(TX_POWER);
+  LoRa.setSpreadingFactor(SPREADING_FACTOR);
+  LoRa.setSignalBandwidth(SIGNAL_BANDWIDTH);
+  LoRa.setCodingRate4(CODING_RATE_DENOM);
+  LoRa.setSyncWord(0x12);  // Sync word padrão
+
+  Serial.println("[OK] Modulo LoRa iniciado");
+  Serial.print("     Frequencia: "); Serial.print(FREQUENCY_IN_HZ / 1E6); Serial.println(" MHz");
+  Serial.print("     TX Power: "); Serial.print(TX_POWER); Serial.println(" dBm");
+  Serial.print("     SF: "); Serial.println(SPREADING_FACTOR);
+
+  // WiFi
+  setupWiFi();
+
+  // MQTT
+  mqtt.setServer(MQTT_SERVER, MQTT_PORT);
+  mqtt.setCallback(callbackMQTT);
+  mqtt.setBufferSize(1024);  // Buffer maior para JSON envelope
+
+  if (connectMQTT()) {
+    Serial.println("[OK] Gateway inicializado com sucesso!");
+    blinkLED(LED_VERDE_PIN, 500, 2);
+  } else {
+    Serial.println("[AVISO] Conexao MQTT pendente. Tentando no loop...");
+  }
 }
 
 //=======================================================================
-//                     4 - Loop de repetição
+//                     LOOP
 //=======================================================================
 void loop() {
-  
-  // Mantém conexão viva
-  if (client.connected()) {
-    client.loop();
+  // Reconexão MQTT se necessário
+  if (!mqtt.connected()) {
+    unsigned long now = millis();
+    if (now - lastReconnectAttempt > 5000) {
+      lastReconnectAttempt = now;
+      if (connectMQTT()) {
+        lastReconnectAttempt = 0;
+      }
+    }
+  } else {
+    mqtt.loop();
   }
 
-  Phy_radio_receive_UL(); // Verifica se recebeu pacote do nó sensor
+  // Heartbeat periódico
+  unsigned long now = millis();
+  if (now - lastHeartbeat > HEARTBEAT_INTERVAL) {
+    lastHeartbeat = now;
+    heartbeat();
+  }
+
+  // Verifica pacotes LoRa (Uplink do sensor)
+  Phy_radio_receive_UL();
+}
+
+//=======================================================================
+//                     WIFI
+//=======================================================================
+void setupWiFi() {
+  Serial.print("[WiFi] Conectando a ");
+  Serial.print(WIFI_SSID);
+
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 40) {
+    delay(500);
+    Serial.print(".");
+    attempts++;
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println(" [OK]");
+    Serial.print("[WiFi] IP: ");
+    Serial.println(WiFi.localIP());
+    Serial.print("[WiFi] RSSI: ");
+    Serial.print(WiFi.RSSI());
+    Serial.println(" dBm");
+  } else {
+    Serial.println(" [FALHA]");
+    Serial.println("[ERRO] Nao foi possivel conectar ao WiFi!");
+  }
+}
+
+//=======================================================================
+//                     MQTT
+//=======================================================================
+bool connectMQTT() {
+  if (mqtt.connected()) return true;
+
+  Serial.print("[MQTT] Conectando ao broker ");
+  Serial.print(MQTT_SERVER);
+  Serial.print(":");
+  Serial.print(MQTT_PORT);
+  Serial.print(" ...");
+
+  String clientId = "AirSense-GW-" + String(GATEWAY_ID);
+
+  if (mqtt.connect(clientId.c_str(), MQTT_USER, MQTT_PASS)) {
+    Serial.println(" [OK]");
+    
+    // Subscreve no tópico de comandos DL
+    mqtt.subscribe(TOPIC_DL);
+    Serial.print("[MQTT] Subscrito em: ");
+    Serial.println(TOPIC_DL);
+
+    // Publica status online (retained)
+    StaticJsonDocument<256> doc;
+    doc["online"] = true;
+    doc["ts"] = millis() / 1000;
+    doc["ip"] = WiFi.localIP().toString();
+    doc["rssi_wifi"] = WiFi.RSSI();
+    
+    char buffer[256];
+    serializeJson(doc, buffer);
+    mqtt.publish(TOPIC_STATUS, buffer, true);
+    
+    return true;
+  } else {
+    Serial.print(" [FALHA: ");
+    Serial.print(mqtt.state());
+    Serial.println("]");
+    return false;
+  }
+}
+
+void heartbeat() {
+  if (!mqtt.connected()) return;
+
+  StaticJsonDocument<256> doc;
+  doc["online"] = true;
+  doc["uptime_s"] = millis() / 1000;
+  doc["free_heap"] = ESP.getFreeHeap();
+  doc["rssi_wifi"] = WiFi.RSSI();
+  doc["ts"] = millis() / 1000;
+
+  char buffer[256];
+  serializeJson(doc, buffer);
+  mqtt.publish(TOPIC_STATUS, buffer, true);
+}
+
+void callbackMQTT(char* topic, byte* payload, unsigned int length) {
+  if (strcmp(topic, TOPIC_DL) == 0) {
+    Phy_MQTT_receive_DL(topic, payload, length);
+  }
 }
