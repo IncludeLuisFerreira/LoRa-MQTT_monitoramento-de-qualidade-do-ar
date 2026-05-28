@@ -1,7 +1,2 @@
-# Arquivo de dependências para o uso do projeto
-
-# Necessário para a comunicação mqtt com o broker
+flask
 paho-mqtt
-
-# Necesário para plotar gráficos
-matplotlib
