@@ -105,8 +105,13 @@ def api_command():
     if not (10 <= interval <= 3600):
         return jsonify({"error": "Intervalo inválido"}), 400
     
+    # Mudar o tempo entre as requisicoes
+    border_service.set_timeStamp(interval)  
+
+    sleep_time = max(1, interval//60)
+    
     # Envia comando via MQTT (gateway fixo para demo: gw-001)
-    cmd_id = border_service.send_command("gw-001", sensor_id, 0x01, interval)
+    cmd_id = border_service.send_command("gw-001", 1, 0x01, sleep_time)
     
     # Atualiza cache local
     db.update_config(sensor_id, interval, threshold)
