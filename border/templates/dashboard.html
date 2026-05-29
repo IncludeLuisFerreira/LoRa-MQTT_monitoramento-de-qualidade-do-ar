@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AirSense - Dashboard</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-light">
+    <nav class="navbar navbar-dark bg-dark mb-4">
+        <div class="container-fluid">
+            <span class="navbar-brand">AirSense -- Monitoramento Ambiental</span>
+            <a href="/logout" class="btn btn-outline-light">Sair</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="row text-center mb-4">
+            <div class="col-md-3">
+                <div class="card p-3">
+                    <h6>Umidade</h6>
+                    <h3 id="hum-val">-- %</h3>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card p-3">
+                    <h6>Poluição</h6>
+                    <h3 id="pol-val">--</h3>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card p-3">
+                    <h6>RSSI</h6>
+                    <h3 id="rssi-val">-- dBm</h3>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card p-3">
+                    <h6>SNR</h6>
+                    <h3 id="snr-val">-- dB</h3>
+                </div>
+            </div>
+        </div>
+
+        <div class="card p-4 mb-4">
+            <h5>Gráfico -- Últimas Leituras (Humidade + Poluição)</h5>
+            <canvas id="myChart" height="100"></canvas>
+        </div>
+
+        <div class="text-muted small">
+            Sensor: #<span id="sensor-id">--</span> | Gateway: <span id="gateway-id">--</span> | 
+            Última atualização: <span id="last-update">--</span>
+        </div>
+    </div>
+
+    <script>
+        const ctx = document.getElementById('myChart').getContext('2d');
+        const chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Umidade (%)',
+                    borderColor: 'blue',
+                    data: []
+                }, {
+                    label: 'Poluição',
+                    borderColor: 'red',
+                    data: []
+                }]
+            }
+        });
+
+        function updateData() {
+            fetch('/api/data?sensor_id=1')
+                .then(r => r.json())
+                .then(data => {
+                    if(data.error) return;
+                    document.getElementById('hum-val').innerText = data.humidity.toFixed(1) + ' %';
+                    document.getElementById('pol-val').innerText = data.pollution;
+                    document.getElementById('rssi-val').innerText = data.rssi + ' dBm';
+                    document.getElementById('snr-val').innerText = data.snr + ' dB';
+                    document.getElementById('sensor-id').innerText = data.sensor_id;
+                    document.getElementById('gateway-id').innerText = data.gateway_id;
+                    document.getElementById('last-update').innerText = new Date(data.ts * 1000).toLocaleTimeString();
+
+                    const now = new Date().toLocaleTimeString();
+                    if (chart.data.labels.length > 20) {
+                        chart.data.labels.shift();
+                        chart.data.datasets[0].data.shift();
+                        chart.data.datasets[1].data.shift();
+                    }
+                    chart.data.labels.push(now);
+                    chart.data.datasets[0].data.push(data.humidity);
+                    chart.data.datasets[1].data.push(data.pollution);
+                    chart.update();
+                });
+        }
+
+        setInterval(updateData, 5000);
+        updateData();
+    </script>
+</body>
+</html>

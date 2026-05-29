@@ -1,3 +1,8 @@
+__pycache__/
+*.py[cod]
+*.class
 venv/
-secrets.h
-dados/
+ENV/
+*.log
+*.db
+.pytest_cache/
