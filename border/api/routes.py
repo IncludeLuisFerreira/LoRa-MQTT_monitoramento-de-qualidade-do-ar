@@ -1,6 +1,9 @@
+# api/routes.py
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 import sqlite3
+import hashlib
 import os
+
 try:
     from border_mqtt import BorderMQTT
     import database as db
@@ -8,19 +11,24 @@ except ImportError:
     from border.border_mqtt import BorderMQTT
     import border.database as db
 
-import os
-
+# Configurações do Flask
 template_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'templates'))
 static_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'static'))
+
 app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
 app.secret_key = 'airsense_secret_key'
 
-# Inicializa o Border MQTT (compartilhado com a API)
-border_service = BorderMQTT()
-border_service.run()
+# BorderMQTT será inicializado pelo app.py (não aqui)
+border_service = None
 
-def get_db_connection():
-    conn = sqlite3.connect('airsense.db')
+def set_border_service(service):
+    """Injeta a instância do BorderMQTT (chamado pelo app.py)"""
+    global border_service
+    border_service = service
+
+def get_auth_connection():
+    """Conexão para o banco de autenticação (SQLite)"""
+    conn = sqlite3.connect('auth.db')
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -38,18 +46,20 @@ def login():
         username = request.form['username']
         password = request.form['password']
         role = request.form['role']
+
+        password_hash = hashlib.sha256(password.encode()).hexdigest()
         
-        conn = get_db_connection()
-        user = conn.execute('SELECT * FROM users WHERE username = ? AND password_hash = ? AND role = ?',
-                           (username, password, role)).fetchone()
+        conn = get_auth_connection()
+        user = conn.execute(
+            'SELECT * FROM users WHERE username = ? AND password_hash = ? AND role = ?',
+            (username, password_hash, role)
+        ).fetchone()
         conn.close()
         
         if user:
             session['username'] = username
             session['role'] = role
-            if role == 'admin':
-                return redirect(url_for('admin'))
-            return redirect(url_for('dashboard'))
+            return redirect(url_for('admin' if role == 'admin' else 'dashboard'))
         else:
             return render_template('login.html', error='Credenciais inválidas')
             
@@ -65,10 +75,8 @@ def admin():
     if session.get('role') != 'admin':
         return redirect(url_for('login'))
     
-    conn = get_db_connection()
-    commands = conn.execute('SELECT * FROM commands ORDER BY ts DESC LIMIT 10').fetchall()
-    sensors = conn.execute('SELECT DISTINCT sensor_id FROM sensor_data').fetchall()
-    conn.close()
+    commands = db.get_recent_commands(limit=10)
+    sensors = db.get_distinct_sensors()
     
     return render_template('admin.html', commands=commands, sensors=sensors)
 
@@ -79,16 +87,13 @@ def dashboard():
     
     return render_template('dashboard.html')
 
-# API Endpoints
 @app.route('/api/data')
 def api_data():
     sensor_id = request.args.get('sensor_id', 1)
-    conn = get_db_connection()
-    data = conn.execute('SELECT * FROM sensor_data WHERE sensor_id = ? ORDER BY ts DESC LIMIT 1', (sensor_id,)).fetchone()
-    conn.close()
+    data = db.get_last_sensor_data(sensor_id)
     
     if data:
-        return jsonify(dict(data))
+        return jsonify(data)
     return jsonify({"error": "No data found"}), 404
 
 @app.route('/api/command', methods=['POST'])
@@ -97,26 +102,23 @@ def api_command():
         return jsonify({"error": "Unauthorized"}), 403
     
     data = request.json
-    sensor_id = int(data.get('sensor_id'))
+    sensor_id = int(data.get('sensor_id', 1))
     interval = int(data.get('interval'))
-    threshold = int(data.get('threshold'))
+    threshold = float(data.get('threshold', 0))
     
-    # Validação (PRD 8.3-07)
     if not (10 <= interval <= 3600):
-        return jsonify({"error": "Intervalo inválido"}), 400
+        return jsonify({"error": "Intervalo inválido (10-3600s)"}), 400
     
-    # Mudar o tempo entre as requisicoes
-    border_service.set_timeStamp(interval)  
+    if border_service:
+        border_service.set_timeStamp(interval)  
 
-    sleep_time = max(1, interval//60)
+    sleep_time = max(1, interval // 60)
     
-    # Envia comando via MQTT (gateway fixo para demo: gw-001)
-    cmd_id = border_service.send_command("gw-001", 1, 0x01, sleep_time)
+    if border_service:
+        cmd_id = border_service.send_command("gw-001", sensor_id, 0x01, sleep_time)
+    else:
+        cmd_id = "mock-cmd"
     
-    # Atualiza cache local
     db.update_config(sensor_id, interval, threshold)
     
     return jsonify({"status": "queued", "command_id": cmd_id})
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)

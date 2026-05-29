@@ -1,2 +1,4 @@
 flask
 paho-mqtt
+influxdb
+influxdb_client>=1.34.0
