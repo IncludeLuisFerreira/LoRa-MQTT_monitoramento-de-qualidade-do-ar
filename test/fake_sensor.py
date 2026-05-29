@@ -1,60 +1,83 @@
-# Este código emula um gateway lora enviando os dados para o broker
-import paho.mqtt.client as mqtt
-from paho.mqtt.enums import CallbackAPIVersion
-import random
 import time
+import random
+import struct
+import paho.mqtt.client as mqtt
+import base64
 
-# CONFIGURAÇÕES DO BROKER (Iguais ao script principal)
-BROKER = "broker.hivemq.com"   
-TOPIC_LUM = "sensor/luminosidade"
-TOPIC_LED = "sensor/led"
+# Configurações
+BROKER = "localhost"  # Usaremos localhost pois o mosquitto rodará no sandbox
+PORT = 1883
+RADIO_TOPIC = "airsense/radio/virtual"  # Tópico que simula o meio físico (PHY)
+SENSOR_ID = 1
+GATEWAY_ID = 100
 
-TAMANHO_PACOTE = 52
+class FakeSensor:
+    def __init__(self):
+        self.ul_count = 0
+        self.dl_count = 0
+        self.interval = 30
+        self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+        self.client.on_message = self.on_message
 
-def on_connect(client, userdata, flags, reason_code, properties):
-    print(f"🤖 [FAKE SENSOR] Conectado ao broker. Código: {reason_code}")
-    # O sensor escuta o tópico onde o gateway envia as requisições/comandos
-    client.subscribe(TOPIC_LED)
-    print(f"📥 Escutando o tópico de comandos: {TOPIC_LED}")
+    def on_message(self, client, userdata, msg):
+        # Simula recebimento via LoRa (PHY)
+        payload = msg.payload
+        if len(payload) == 20:
+            dest_id = payload[8]
+            if dest_id == SENSOR_ID:
+                command_id = struct.unpack(">H", payload[12:14])[0]
+                req_type = payload[16]
+                value = payload[17]
+                print(f"[Sensor] Downlink recebido! CMD={command_id}, TYPE={req_type}, VAL={value}")
+                self.dl_count += 1
+                if req_type == 0x01:
+                    self.interval = value
+                    print(f"[Sensor] Novo intervalo: {self.interval}s")
 
-def on_message(client, userdata, msg):
-    payload = msg.payload
-    
-    # Valida se o pacote recebido do gateway está no tamanho correto
-    if len(payload) != TAMANHO_PACOTE:
-        print(f"⚠️ [FAKE SENSOR] Pacote inválido recebido (Tamanho: {len(payload)} bytes)")
-        return
+    def run(self):
+        self.client.connect(BROKER, PORT)
+        self.client.subscribe(RADIO_TOPIC)
+        self.client.loop_start()
 
-    # Extrai o comando do LED enviado pelo Python (Byte 34)
-    comando_led = payload[34]
-    print(f"\n📥 [REQUISIÇÃO RECEBIDA] Comando do LED recebido do Gateway: {comando_led}")
+        print(f"[Sensor] Iniciado. ID={SENSOR_ID}, Intervalo={self.interval}s")
 
-    # Simula a leitura de um sensor real (Gera valores de 0 a 15 para testar o limiar de 5)
-    luminosidade_fake = random.randint(0, 15)
-    print(f"🔮 [LEITURA] Sensor leu luminosidade fake: {luminosidade_fake}")
+        try:
+            while True:
+                # Simula leitura de sensores
+                humidity = random.uniform(30, 90)
+                pollution = random.randint(0, 150)
+                status = 0x03 # DHT22 + ZP07
 
-    # Monta o pacote de resposta de 52 bytes
-    pacote_resposta = bytearray(TAMANHO_PACOTE)
-    
-    # Insere a luminosidade nos bytes 17 e 18 (Operações de Bitwise idênticas ao hardware)
-    pacote_resposta[17] = (luminosidade_fake >> 8) & 0xFF
-    pacote_resposta[18] = luminosidade_fake & 0xFF
+                # Monta pacote TpM (20 bytes)
+                # Byte 0: RSSI Mapped
+                # Byte 1-2: SNR Mapped (x10)
+                # Byte 8: DEST_ID
+                # Byte 10: SRC_ID
+                # Byte 12-13: DL_COUNT
+                # Byte 14-15: UL_COUNT
+                # Byte 16: STATUS
+                # Byte 17: POLLUTION
+                # Byte 18-19: HUMIDITY (x10)
+                
+                self.ul_count += 1
+                packet = bytearray(20)
+                packet[0] = 100 # RSSI fake
+                struct.pack_into(">H", packet, 1, 85) # SNR fake 8.5
+                packet[8] = GATEWAY_ID
+                packet[10] = SENSOR_ID
+                struct.pack_into(">H", packet, 12, self.dl_count)
+                struct.pack_into(">H", packet, 14, self.ul_count)
+                packet[16] = status
+                packet[17] = pollution
+                struct.pack_into(">H", packet, 18, int(humidity * 10))
 
-    # Simula um pequeno delay de processamento do hardware (opcional)
-    time.sleep(0.2)
+                print(f"[Sensor] Enviando Uplink #{self.ul_count}: Hum={humidity:.1f}%, Pol={pollution}")
+                self.client.publish(RADIO_TOPIC, packet)
+                
+                time.sleep(self.interval)
+        except KeyboardInterrupt:
+            self.client.loop_stop()
 
-    # Envia a resposta de volta para o script Python
-    print(f"📤 [RESPOSTA] Enviando pacote de 52 bytes para o tópico: {TOPIC_LUM}")
-    client.publish(TOPIC_LUM, pacote_resposta)
-
-# ============================================================================
-# EXECUÇÃO DO SENSOR SIMULADO
-# ============================================================================
-client = mqtt.Client(CallbackAPIVersion.VERSION2)
-client.on_connect = on_connect
-client.on_message = on_message
-
-print("🚀 Iniciando Simulador de Sensor (ESP32 Fake)...")
-client.connect(BROKER, 1883, 60)
-client.loop_forever()
-
+if __name__ == "__main__":
+    sensor = FakeSensor()
+    sensor.run()
