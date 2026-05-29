@@ -20,7 +20,7 @@
 #define CODING_RATE_DENOMINATOR 8
 
 bool init_lora();
-void lora_send(uint8_t* buffer, size_t size);
+bool lora_send(uint8_t* buffer, size_t size);
 int lora_receive(uint8_t* buffer, size_t size, uint32_t timeout_ms);
 int8_t get_last_rssi();
 float get_last_snr();

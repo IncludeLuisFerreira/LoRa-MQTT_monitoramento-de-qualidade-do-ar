@@ -3,13 +3,13 @@
 
 #include <Arduino.h>
 
-const char* ssid = "NOME_DA_SUA_REDE";
-const char* password = "SENHA_DA_SUA_REDE";
-const char* mqtt_server = "localhost";
+const char* ssid = "Andrea Maria";
+const char* password = "10042411";
+const char* mqtt_server = "192.168.127.18";   // IP do broker MQTT
 const int mqtt_port = 1883;
 
-const char* topic_rx = "airsense/gw-001/rx";
-const char* topic_tx = "airsense/gw-001/tx";
+const char* topic_rx = "airsense/gw-001/rx";   // Uplink (gateway → broker)
+const char* topic_tx = "airsense/gw-001/tx";   // Downlink (broker → gateway)
 const char* topic_ack = "airsense/gw-001/tx/ack";
 const char* topic_status = "airsense/gw-001/status";
 
