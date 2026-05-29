@@ -34,15 +34,18 @@ void setup() {
 }
 
 void loop() {
-    if (lora_havePkt()) {  // Verifica se há pacote
-        uint8_t buffer[LORA_PACKET_SIZE];
-        int len = lora_receive(buffer, LORA_PACKET_SIZE);
-        if (len == LORA_PACKET_SIZE) {
-            // Aloca e copia para PacoteDL
-            PacoteDL = (uint8_t*) malloc(LORA_PACKET_SIZE);
-            memcpy(PacoteDL, buffer, LORA_PACKET_SIZE);
-            Phy_radio_receive_DL();  // Processa a camada física
+    if (lora_havePkt()) {
+        Serial.print("Pacote recebido");
+        uint8_t buffer[PACKET_SIZE];  // usar PACKET_SIZE de lora_packet.h
+        int len = lora_receive(buffer, PACKET_SIZE);
+        if (len == PACKET_SIZE) {
+            PacoteDL = (uint8_t*) malloc(PACKET_SIZE);
+            if (PacoteDL != NULL) {
+                memcpy(PacoteDL, buffer, PACKET_SIZE);
+                Phy_radio_receive_DL();
+                free(PacoteDL);
+                PacoteDL = NULL;
+            }
         }
     }
-    delay(100);
 }

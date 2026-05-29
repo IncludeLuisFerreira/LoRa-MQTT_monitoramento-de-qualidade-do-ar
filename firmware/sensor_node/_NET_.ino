@@ -3,7 +3,9 @@
 void Net_radio_receive_DL(uint8_t* buffer) {
     if (buffer[NET_DEST_ID] != SENSOR_ID || buffer[NET_SOURCE_ID] != GATEWAY_ID) {
         // descartar pacote
-        memset(buffer, 0, LORA_PACKET_SIZE);
+        memset(buffer, 0, PACKET_SIZE);
+        free(PacoteDL);
+        PacoteDL = NULL;
         return;
     }
     Transp_radio_receive_DL();

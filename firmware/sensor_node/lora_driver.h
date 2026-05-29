@@ -4,6 +4,7 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <LoRa.h>
+#include "lora_packet.h"   // para obter PACKET_SIZE
 
 // Pinagem PK-LoRa
 #define SCK_PIN    5
@@ -19,25 +20,10 @@
 #define SIGNAL_BANDWIDTH 125E3
 #define CODING_RATE_DENOMINATOR 8
 
-#define LORA_PACKET_SIZE 20
-
 bool init_lora();
-
-/**
- *  @brief Manda um pacote LoRa
- */
-void lora_send(uint8_t* buffer, size_t size);
-
-/**
- *  @brief Verifica se recebeu pacote via LoRa
- */
+bool lora_send(uint8_t* buffer, size_t size);
 int lora_havePkt();
-
-/**
- *  @brief Recebe o pacote e escreve ele num buffer
- */
 int lora_receive(uint8_t* buffer, size_t size);
-
 int8_t get_last_rssi();
 float get_last_snr();
 

@@ -15,10 +15,10 @@ bool init_lora() {
     return true;
 }
 
-void lora_send(uint8_t* buffer, size_t size) {
+bool lora_send(uint8_t* buffer, size_t size) {
     LoRa.beginPacket();
     LoRa.write(buffer, size);
-    LoRa.endPacket();
+    return LoRa.endPacket();
 }
 
 
