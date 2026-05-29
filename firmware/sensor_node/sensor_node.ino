@@ -1,18 +1,24 @@
 #include <Arduino.h>
 #include "lora_driver.h"
-#include "tpm_protocol.h"
 #include "sensors.h"
+#include "protocol.h"
 
-// Configurações do Nó
+// Definições globais (inicialização)
 uint8_t SENSOR_ID = 1;
 uint8_t GATEWAY_ID = 100;
 uint32_t read_interval_ms = 30000;
-
+uint32_t sleep_time_ms = 10000;  // exemplo
 uint16_t ul_count = 0;
 uint16_t dl_count = 0;
-
 int8_t last_rssi = 0;
 float last_snr = 0.0;
+int8_t txPower = 17;
+uint8_t sensors_enabled = 0x03;  // ambos habilitados
+float temperatura = 0;
+float umidade = 0;
+
+uint8_t* PacoteUL = NULL;
+uint8_t* PacoteDL = NULL;
 
 void setup() {
     Serial.begin(115200);
@@ -28,50 +34,15 @@ void setup() {
 }
 
 void loop() {
-    // 1. Coleta de dados (APP)
-    float humidity = read_humidity();
-    uint8_t pollution = read_pollution();
-    uint8_t status = get_sensor_status();
-
-    // 2. Montagem do pacote (TRANSP)
-    TpMUplink pkt;
-    pkt.rssi_mapped = (uint8_t)(last_rssi + 164); // Exemplo de mapeamento
-    pkt.snr_mapped = (uint16_t)(last_snr * 10);
-    pkt.dest_id = GATEWAY_ID;
-    pkt.src_id = SENSOR_ID;
-    pkt.dl_count = dl_count;
-    pkt.ul_count = ++ul_count;
-    pkt.sensor_status = status;
-    pkt.pollution_level = pollution;
-    pkt.humidity_raw = (uint16_t)(humidity * 10);
-
-    uint8_t buffer[TPM_PACKET_SIZE];
-    pkt.serialize(buffer);
-
-    // 3. Transmissão (PHY/MAC)
-    Serial.printf("Enviando Uplink #%d...\n", ul_count);
-    lora_send(buffer, TPM_PACKET_SIZE);
-
-    // 4. Escuta por Downlink (RX Window)
-    Serial.println("Aguardando Downlink (500ms)...");
-    uint8_t rx_buffer[TPM_PACKET_SIZE];
-    int rx_size = lora_receive(rx_buffer, TPM_PACKET_SIZE, 500);
-
-    if (rx_size == TPM_PACKET_SIZE) {
-        TpMDownlink dl = TpMDownlink::deserialize(rx_buffer);
-        if (dl.dest_id == SENSOR_ID) {
-            Serial.printf("Downlink recebido! CMD_ID: %d, TYPE: %02X, VAL: %d\n", 
-                          dl.command_id, dl.request_type, dl.command_value);
-            dl_count++;
-            
-            // Aplica comandos (APP)
-            if (dl.request_type == 0x01) { // Alterar intervalo
-                read_interval_ms = dl.command_value * 1000;
-                Serial.printf("Novo intervalo: %d s\n", dl.command_value);
-            }
+    if (lora_havePkt()) {  // Verifica se há pacote
+        uint8_t buffer[LORA_PACKET_SIZE];
+        int len = lora_receive(buffer, LORA_PACKET_SIZE);
+        if (len == LORA_PACKET_SIZE) {
+            // Aloca e copia para PacoteDL
+            PacoteDL = (uint8_t*) malloc(LORA_PACKET_SIZE);
+            memcpy(PacoteDL, buffer, LORA_PACKET_SIZE);
+            Phy_radio_receive_DL();  // Processa a camada física
         }
     }
-
-    // 5. Deep Sleep (Simulado por delay para fins de firmware inicial)
-    delay(read_interval_ms);
+    delay(100);
 }

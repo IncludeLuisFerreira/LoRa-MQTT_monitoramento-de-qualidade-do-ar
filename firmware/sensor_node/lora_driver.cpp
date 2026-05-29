@@ -21,20 +21,19 @@ void lora_send(uint8_t* buffer, size_t size) {
     LoRa.endPacket();
 }
 
-int lora_receive(uint8_t* buffer, size_t size, uint32_t timeout_ms) {
-    uint32_t start = millis();
-    while (millis() - start < timeout_ms) {
-        int packetSize = LoRa.parsePacket();
-        if (packetSize) {
-            int i = 0;
-            while (LoRa.available() && i < size) {
-                buffer[i++] = LoRa.read();
-            }
-            return i;
-        }
-        yield();
+
+int lora_havePkt() {
+    return LoRa.parsePacket();
+}
+
+int lora_receive(uint8_t* buffer, size_t size) {
+    int i = 0;
+
+    while (LoRa.available() && i < size) {
+        buffer[i++] = LoRa.read();
     }
-    return 0;
+
+    return i;
 }
 
 int8_t get_last_rssi() {
