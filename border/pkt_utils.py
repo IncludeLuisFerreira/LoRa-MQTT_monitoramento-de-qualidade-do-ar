@@ -1,7 +1,7 @@
 import base64
 import struct
 
-class TpMDecoder:
+class PktDecoder:
     @staticmethod
     def decode_uplink(payload_b64):
         try:

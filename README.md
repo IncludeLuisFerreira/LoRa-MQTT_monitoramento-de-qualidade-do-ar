@@ -1,4 +1,26 @@
-# LoRaFieldMonitor 📡🌐
+<div align="center">
+
+<img src="img/project_icon.png" width="500" alt="LoRa Air Quality Monitor Logo">
+
+# LoRa Air Quality Monitor
+
+Professional-grade IoT platform for environmental monitoring using LoRaWAN, MQTT, InfluxDB and Grafana.
+
+<br>
+
+<div align="center">
+
+<img src="img/icons/mqtt-icon-transparent.svg" width="45" alt="MQTT" title="MQTT">
+&nbsp;&nbsp;
+<img src="img/icons/python-logo-only.svg" width="45" alt="Python" title="Python">
+&nbsp;&nbsp;
+<img src="img/icons/cubo-pink.svg" width="45" alt="InfluxDB" title="InfluxDB">
+&nbsp;&nbsp;
+<img src="img/icons/Grafana.svg" width="45" alt="Grafana" title="Grafana">
+&nbsp;&nbsp;
+<img src="img/icons/docker-mark-ocean-blue.svg" width="45" alt="Docker" title="Docker">
+
+<br>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![IoT](https://img.shields.io/badge/IoT-LoRa-blue.svg)](#)
@@ -6,7 +28,15 @@
 [![InfluxDB](https://img.shields.io/badge/Database-InfluxDB%202.x-68a063.svg)](#)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)](#)
 
-**LoRaFieldMonitor** is a professional-grade, end-to-end IoT solution designed for environmental monitoring in remote areas. By leveraging the long-range capabilities of **LoRa** technology, the efficiency of **MQTT**, and the power of time-series data with **InfluxDB**, this project provides a robust framework for tracking temperature, humidity, and atmospheric pressure across vast distances.
+
+</div>
+
+<br>
+
+
+</div>
+
+**LoRa Air Quality Monitor** is a professional-grade, end-to-end IoT solution designed for environmental monitoring in remote areas. By leveraging the long-range capabilities of **LoRa** technology, the efficiency of **MQTT**, and the power of time-series data with **InfluxDB**, this project provides a robust framework for tracking temperature, humidity, and atmospheric pressure across vast distances.
 
 ---
 
@@ -111,10 +141,10 @@ pip install paho-mqtt influxdb-client
 ```
 
 ---
-
-## 📡 MQTT Topic Structure & Payload
+## <img src="img/icons/mqtt-icon-transparent.svg" width="40" alt="InfluxDB Logo">  MQTT Topic Structure & Payload
 
 ### Topic Pattern
+
 The gateway should publish data to the following topic:
 `lora/devices/{device_id}/data`
 
@@ -130,7 +160,7 @@ The gateway should publish data to the following topic:
 
 ---
 
-## 🗄️ InfluxDB Data Schema
+## <img src="img/icons/cubo-pink.svg" width="40" alt="InfluxDB Logo"> InfluxDB Data Schema
 
 The `subscriber.py` script maps MQTT messages to InfluxDB as follows:
 
@@ -145,8 +175,7 @@ The `subscriber.py` script maps MQTT messages to InfluxDB as follows:
   - `pressure` (float)
 
 ---
-
-## 🐍 Ingestion Script (Subscriber)
+## <img src="img/icons/python-logo-only.svg" width="40" alt="InfluxDB Logo"> Ingestion Script (Subscriber)
 
 The `gateway/subscriber.py` is the bridge between MQTT and InfluxDB. 
 
@@ -174,13 +203,18 @@ from(bucket: "lora_data")
   |> filter(fn: (r) => r["_field"] == "temperature")
 ```
 
-### Grafana Integration
+## <img src="img/icons/Grafana.svg" width="40" alt="Grafana Logo"> Grafana Integration
+
 1. Login to Grafana at `http://localhost:3000` (Default: admin/admin).
 2. Add a **Data Source**: Select **InfluxDB**.
 3. Set Query Language to **Flux**.
 4. URL: `http://influxdb:8086`.
 5. Enter Org, Token, and Bucket details from Step 2.
 6. Create a dashboard and add a Time Series panel.
+
+<p align="center">
+  <img src="img/dashboard_grafana.png" width="90%" alt="Grafana Dashboard">
+</p>
 
 ---
 

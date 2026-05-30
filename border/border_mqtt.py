@@ -1,9 +1,8 @@
 import base64
-
 import paho.mqtt.client as mqtt
 import json
 import time
-from tpm_utils import TpMDecoder, CommandBuilder
+from pkt_utils import PktDecoder, CommandBuilder
 import database
 import threading
 
@@ -48,7 +47,7 @@ class BorderMQTT:
                 hex_payload = data.get('payload_hex', '')
                 if hex_payload:
                     payload_bytes = bytes.fromhex(hex_payload)
-                    decoded = TpMDecoder.decode_uplink(base64.b64encode(payload_bytes).decode())
+                    decoded = PktDecoder.decode_uplink(base64.b64encode(payload_bytes).decode())
                     if decoded:
                         decoded['gw_id'] = gw_id
                         decoded['rssi'] = data.get('rssi_dbm', 0)
