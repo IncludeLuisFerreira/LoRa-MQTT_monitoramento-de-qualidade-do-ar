@@ -27,14 +27,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
     if (String(topic) == topic_tx) {
         if (length == PACKET_SIZE) {
-            // Verifica se o destino é o sensor ID 1
-            uint8_t dest_id = payload[NET_DEST_ID];
-            if (dest_id != 1) {  // ID do sensor definido em sensor_node.ino
-                Serial.printf("Downlink ignorado: destino %d (esperado 1)\n", dest_id);
-                client.publish(topic_ack, "{\"status\": \"wrong_destination\"}");
-                return;
-            }
-            
+    
             Serial.println("Retransmitindo via LoRa...");
             bool success = lora_send(payload, PACKET_SIZE);
             if (success) {
