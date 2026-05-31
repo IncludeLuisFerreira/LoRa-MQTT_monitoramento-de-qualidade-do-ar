@@ -23,18 +23,7 @@ class BorderMQTT:
 
     def on_connect(self, client, userdata, flags, rc, properties=None):
         print(f"[Border] Conectado ao broker com código {rc}")
-        self.client.subscribe([(TOPIC_RX, 1), (TOPIC_ACK, 1), (TOPIC_STATUS, 0)])
-        
-        def periodic_send():
-            while True:
-                time.sleep(self.timeStamp)
-                try:
-                    # Envia comando de leitura (request_type=0x00, value=0) para sensor 1
-                    self.send_command("gw-001", dest_id=1, req_type=0x00, value=0)
-                    print("[Periodic] Pacote de requisição enviado")
-                except Exception as e:
-                    print(f"[Periodic] Erro: {e}")
-        threading.Thread(target=periodic_send, daemon=True).start()
+        self.client.subscribe([(TOPIC_RX, 1), (TOPIC_ACK, 1), (TOPIC_STATUS, 0)]) 
 
     def on_message(self, client, userdata, msg):
         topic_parts = msg.topic.split('/')
@@ -99,6 +88,18 @@ class BorderMQTT:
         self.client.connect(BROKER, PORT)
         self.client.loop_start()
         print("[Border] MQTT Client iniciado.")
+
+        def periodic_send():
+            while True:
+                time.sleep(self.timeStamp)
+                try:
+                    self.send_command("gw-001", dest_id=1, req_type=0x00, value=0)
+                    print("[Periodic] Pacote de requisição enviado")
+                except Exception as e:
+                    print(f"[Periodic] Erro: {e}")
+
+        thread = threading.Thread(target=periodic_send, daemon=True)
+        thread.start()
 
     def set_timeStamp(self, timeStamp):
         self.timeStamp = timeStamp
