@@ -6,3 +6,7 @@ ENV/
 *.log
 *.db
 .pytest_cache/
+
+
+# Arquivos de senha wifi
+config.h

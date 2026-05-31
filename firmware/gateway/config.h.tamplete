@@ -7,6 +7,7 @@
 #ifndef SECRETS_H
 #define SECRETS_H
 
+#include <Arduino.h>
 
 // Credenciais do seu WiFi
 
