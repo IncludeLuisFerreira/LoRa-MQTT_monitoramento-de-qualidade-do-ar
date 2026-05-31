@@ -18,9 +18,9 @@ extern uint8_t sensors_enabled;
 extern float temperatura;
 extern float umidade;
 
-// Ponteiros para pacotes
-extern uint8_t* PacoteUL;
-extern uint8_t* PacoteDL;
+// Buffers estáticos para os pacotes (substitui os ponteiros dinâmicos)
+extern uint8_t PacoteUL[PACKET_SIZE];
+extern uint8_t PacoteDL[PACKET_SIZE];
 
 // Definição do tipo de requisição
 typedef enum {
@@ -28,7 +28,7 @@ typedef enum {
     REQ_CHANGE_PARAM
 } TYPEOF_REQUEST;
 
-// Protótipos das funções das camadas (definidas nos .ino)
+// Protótipos das funções das camadas
 void App_radio_receive_DL();
 void App_radio_send_UL(TYPEOF_REQUEST request);
 void Montar_pacote_confirmacao();

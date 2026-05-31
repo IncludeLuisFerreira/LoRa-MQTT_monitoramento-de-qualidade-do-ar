@@ -16,7 +16,7 @@ void App_radio_receive_DL() {
         Serial.println(" segundos");
         request = REQ_CHANGE_PARAM;
     }
-    else if (request_type == REQUEST_CHANGE_INTERVAL) {  // Você precisa definir REQUEST_CHANGE_INTERVAL em lora_packet.h
+    else if (request_type == REQUEST_CHANGE_INTERVAL) {
         read_interval_ms = command_value * 1000UL;
         Serial.print("Intervalo de leitura alterado para: ");
         Serial.print(command_value);
@@ -43,13 +43,8 @@ void App_radio_receive_DL() {
     }
     else {
         Serial.println("Erro: comando nao especificado!");
-        free(PacoteDL);
-        PacoteDL = NULL;
-        return;
+        return;   // sem free, buffer é estático
     }
-
-    free(PacoteDL);
-    PacoteDL = NULL;
     
     App_radio_send_UL(request);
 }
@@ -65,13 +60,7 @@ void App_radio_send_UL(TYPEOF_REQUEST request) {
 }
 
 void Montar_pacote_confirmacao() {
-    PacoteUL = (uint8_t*) calloc(PACKET_SIZE, sizeof(uint8_t));
-    
-    if (PacoteUL == NULL) {
-        Serial.println("Erro: up link null!");
-        return;
-    }
-    
+    // Usa o buffer estático global PacoteUL (não aloca)
     PacoteUL[APP_UP_SENSOR_STATUS] = 0xFF;
     PacoteUL[APP_UP_POLLUTION] = (uint8_t)(sleep_time_ms / 1000);
     PacoteUL[APP_UP_HUMIDITY_HIGH] = (uint8_t)(read_interval_ms / 1000);
@@ -81,31 +70,25 @@ void Montar_pacote_confirmacao() {
 }
 
 void Montar_pacote_leitura_sensor() {
-    PacoteUL = (uint8_t*) calloc(PACKET_SIZE, sizeof(uint8_t)); 
-
-    if (PacoteUL == NULL) {
-        Serial.println("Erro: up link null!");
-        return;
-    }
-
+    // Usa o buffer estático global PacoteUL
     uint8_t sensor_status = 0x00;
 
-   // ============= Leitura ZP07-MP503 (Qualidade do Ar) - 2 bits digitais
+    // ============= Leitura ZP07-MP503 (Qualidade do Ar)
     if (sensors_enabled & 0x02) {
         uint8_t a = digitalRead(ZP07_A_PIN);
         uint8_t b = digitalRead(ZP07_B_PIN);
-        uint8_t nivel = (a << 1) | b;   // 0, 1, 2 ou 3
+        uint8_t nivel = (a << 1) | b;
         PacoteUL[APP_UP_POLLUTION] = nivel;
         sensor_status |= SENSOR_STATUS_SENSOR2;
         Serial.print("Poluição: ");
         Serial.print(nivel);
     } else {
-        PacoteUL[APP_UP_POLLUTION] = 0xFF;  // sensor desabilitado
+        PacoteUL[APP_UP_POLLUTION] = 0xFF;
     }
 
     // ============= Leitura DHT22
     if (sensors_enabled & 0x01) {
-        extern DHT dht; // declarado em sensors.cpp
+        extern DHT dht;
         temperatura = dht.readTemperature();
         umidade = dht.readHumidity();
 

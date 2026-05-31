@@ -2,9 +2,7 @@
 
 void Mac_radio_receive_DL(uint8_t* buffer) { 
     if (buffer[MAC_PROTOCOL_VERSION] != PROTOCOL_VERSION_VALUE) {
-        // Erro: versão diferente
-        free(PacoteDL);
-        PacoteDL = NULL;
+        // Versão diferente: descarta pacote
         return;
     }
     Net_radio_receive_DL(buffer);
