@@ -213,7 +213,7 @@ from(bucket: "lora_data")
 6. Create a dashboard and add a Time Series panel.
 
 <p align="center">
-  <img src="img/dashboard_grafana.png" width="90%" alt="Grafana Dashboard">
+  <img src="img/examples/dashboard_grafana.png" width="90%" alt="Grafana Dashboard">
 </p>
 
 ---
